@@ -1,0 +1,15 @@
+we train a basic nn with a single hidden layer of size 1 000 (linear layers, one ReLU)
+	we used 200 training samples
+
+	loss (MSE of each pixels) at the end was : 0.000289
+	precision (mean of all loss of the test samples): 2.9e-05
+
+The 200 samples used for training as well as the 100 for computing precision (not seen during training)
+consiste of a T_init compose of 16 squares of size 25*25 either all 0 (cold) or all 1 (hot)
+
+we then used the model on two samples of another dataset where the T_init is this time
+several blocks of random sizes. The result from the nn are still coherent but not as good as with samples from the same dataset as the training one
+we indeed observe that the T_final predicted are composed of 16 differents rather squared spot.
+the bias of the training samples have been reproduced by the model. this is 100% logical
+
+now we will try to make a CNN architecture, hopping to cope this issue.

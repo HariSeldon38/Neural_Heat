@@ -1,0 +1,14 @@
+increasing batch size seem to have worst result
+
+all the search on lr and scheduler have been done with 20 samples batch
+best lr around .00043 /2 at epoch60
+more variability with less sample/batch but better results
+
+10 batch size
+.00043 lr
+/2 at epoch 60
+seems to have the best result for now
+
+but need to try lowering batch size again and changing lr to see
+
+or just changing lr again with new batch size of 10

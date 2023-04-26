@@ -1,0 +1,8 @@
+we train a basic nn with a single hidden layer of size 1 000 (linear layers, one ReLU)
+	we used 200 training samples
+
+	loss (MSE of each pixels) at the end was : 0.000709
+	precision (mean of all loss of the test samples): 3.8e-05
+
+we then used the model on one of the sample of the full dataset (don't know if the sample was used for training or for computing accuracy)
+the images are ok, we have the same image as the modelisation + a little noise but I consider this as pft

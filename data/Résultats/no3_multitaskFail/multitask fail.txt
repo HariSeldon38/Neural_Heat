@@ -1,0 +1,8 @@
+we designed an other simple model which take this time in input T0 as well as the coeficient alpha
+(10 001 features)
+
+we trained the model on 160 samples with containing  8 differents alpha coefs
+
+we try after that to get the result from the nn for a T0 but with 2 alpha different (hard coded)
+the first one is 0.004 (high) and the second is 0.0005 (low)
+the result from the nn is the same in the two cases (map in up right corner is not relevant

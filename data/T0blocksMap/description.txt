@@ -1,0 +1,3 @@
+temperature maps initial and after 10 iterations
+160 maps each, 20 for each of the 8 diffusion coeficients
+	coef diffusion alphas = [0.0005 * i for i in range(1,9)]
