@@ -1,53 +1,55 @@
-#Loss : sepearte it in two
-#maybe try for myself to add k_fold cross validation for later
-#monitor the loss (with the website i dont remember the name
-
-#access to tensorboard:
-#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs
-#web = http://localhost:6006/
-
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
-import torchvision.utils
 from customDataset import HeatDiffusion
 from torch.utils.data import DataLoader
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 
+
 #device config
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-#load data
-input_folder = 'data/0_003/T0blocksMap_0_003/iteration_no0/'
-output_folder = 'data/0_003/T0blocksMap_0_003/iteration_no10/'
-dataset = HeatDiffusion(input_folder, output_folder, transform=transforms.ToTensor())
 
-batch_size = 20 #for instance
-train_set, test_set = torch.utils.data.random_split(dataset, [200,100])
+#hyperparameters
+epochs = 25 #nb of epochs to do when training
+n_train = 200
+batch_size = 20
+lr = 0.0005 #learning rate
+hidden = 2000 #nb of neurons in the hidden layer
+input_folder = 'data/0_003/ALLMAPS/iteration_no0'
+output_folder = 'data/0_003/ALLMAPS/iteration_no10'
+schedule = True
+sched_step = [13] #epoch steps when we want to decrease the lr by a factor 2
+
+
+epoch_step_to_print = 10 #the loss will be displayed every _ epochs
+
+
+#access to tensorboard:
+#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs/feedfwd/
+#web = http://localhost:6006/
+tensorboard = True
+tensorboard_path = 'runs/feedfwd/5bestALLMAPS'
+tensorboard_name = f'trainingsamples{n_train}_batchsize{batch_size}_lr{lr}_hiddensize{hidden}_shedule0.5_at_13'
+
+
+#load data, nothing to touch here
+dataset = HeatDiffusion(input_folder, output_folder, transform=transforms.ToTensor())
+n_samples = len(dataset)
+if n_train < n_samples:
+    n_test = n_samples-n_train
+else:
+    raise Exception(f"not enough samples to train on {n_train} samples \n must be less")
+train_set, test_set = torch.utils.data.random_split(dataset, [n_train,n_test])
 train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(dataset=test_set, batch_size=batch_size,shuffle=True)
+x_dim, y_dim = len(dataset[0][0][0]), len(dataset[0][0])
+input_size = x_dim * y_dim #total nb of pixels of one image
+#first [0] select one sample, second [0] select only the input 'T0' then nb of rows and cols
+output_size = input_size #we want the nn to output images of the same size as input images
 
-# hyper parameters
-input_size = 100 * 100
-output_size = 100 * 100
-
-example = False
-if example:
-    examples = iter(train_loader)
-    for i, T in enumerate(examples):
-        plt.figure()
-        T0, T1 = T #T0 and T1 are representing a batch (20 images each)
-        plt.subplot(1,2,1)
-        plt.imshow(T0[0][0], cmap='hot')   #we just want a single image from the batch
-        plt.subplot(1, 2, 2)                 # the second [0] is because T0[0] is in fact [T0[0]] but idk why
-        plt.imshow(T1[0][0], cmap='hot')
-        plt.show()
-        break #I don't know out to use the iter objet in a better way so that for loop will do sorry
-
-
-def train(num_epochs = 40, lr = 0.0001, hidden_size = 1000):
+def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
 
     # Fully connected neural network with one hidden layer
     class NeuralNet(nn.Module):
@@ -58,28 +60,31 @@ def train(num_epochs = 40, lr = 0.0001, hidden_size = 1000):
             self.l2 = nn.Linear(hidden_size, output_size)
 
         def forward(self, x):
-            out = nn.ReLU()(self.l1(x))
+            out = x.view(-1, input_size)
+            out = nn.ReLU()(self.l1(out))
             out = self.l2(out)
-            # no activation and no softmax at the end
+            # no activation at the end
+            out = out.view(-1,y_dim,x_dim) #need to unhardcode by int(np.sqrt(output_size))
             return out
 
     model = NeuralNet(input_size, hidden_size, output_size).to(device)
 
     #loss and optimizer, scheduler, writer
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=6)
-    writer = SummaryWriter("runs")
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    if schedule:
+        scheduler = lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=sched_step, gamma=0.5)
+    if tensorboard:
+        writer = SummaryWriter(tensorboard_path+'/'+tensorboard_name)
+        step = 0
 
     #training loop
     model.train()
-    n_total_steps = len(train_loader)
-    step = 0
     for epoch in range(num_epochs):
-        for i, (inputs, true_outputs) in enumerate(train_loader):
+        for inputs, true_outputs in train_loader:
 
-            inputs = inputs.reshape(-1, 100*100).to(device)
-            true_outputs = true_outputs.reshape(-1, 100*100).to(device)
+            inputs = inputs.to(device)
+            true_outputs = true_outputs.to(device)
 
             #forward
             pred_outputs = model(inputs)
@@ -89,115 +94,44 @@ def train(num_epochs = 40, lr = 0.0001, hidden_size = 1000):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            writer.add_scalar('Training loss', loss, global_step=step)
-            step +=1
-        scheduler.step(metrics=loss)
+            if tensorboard:
+                writer.add_scalar('Training loss', loss, global_step=step)
+                step +=1
+        if schedule:
+            scheduler.step()
 
-        if (epoch+1) % 10 == 0:
+        if (epoch+1) % epoch_step_to_print == 0:
             print(f'epoch {epoch+1} / {num_epochs}, loss = {loss.item():.6f}')
 
     #test
     model.eval()
     with torch.no_grad():
-        n_samples = 0
         sum_test_loss = 0
         for inputs, true_outputs in test_loader:
-            inputs = inputs.reshape(-1, 100*100).to(device)
-            true_outputs = true_outputs.reshape(-1, 100*100).to(device)
+            inputs = inputs.to(device)
+            true_outputs = true_outputs.to(device)
             pred_outputs = model(inputs)
 
             sum_test_loss += criterion(pred_outputs, true_outputs)
-            n_samples += true_outputs.shape[0]
 
-        precision = sum_test_loss/n_samples
+        precision = sum_test_loss/n_test
         print("///////////////////////")
         print(f'precision = {precision}')
         print(f"epoch = {num_epochs}")
 
     return model
 
-def test_model(model, T_init, true_T_final):
-    true_T_final = true_T_final.numpy()
+if __name__=='__main__':
+    from test_models import visual_test_model, MMSE
 
-    pred_T_final = model(T_init.reshape(-1, input_size).to(device)).reshape(100,100).detach().to('cpu').numpy()
+    model = train()
 
-    T_init = T_init.numpy()
+    #load test data
+    model.eval()
 
-    plt.figure()
-    plt.subplot(2, 2, 1)
-    plt.imshow(T_init[0], cmap='hot', vmin=0.0, vmax=1.0)
-    plt.subplot(2, 2, 2)
-    plt.imshow(true_T_final[0], cmap='hot', vmin=0.0, vmax=1.0)
-    plt.subplot(2, 2, 3)
-    plt.imshow(pred_T_final, cmap='hot', vmin=0.0, vmax=1.0)
-    plt.show()
+    test_input_folder = 'data/0_003/T0testMap/iteration_no0'
+    test_output_folder = 'data/0_003/T0testMap/iteration_no10'
+    test_dataset = HeatDiffusion(test_input_folder, test_output_folder, transform=transforms.ToTensor())
+    visual_test_model(model, test_dataset[0][0], test_dataset[0][1])
 
-model = train()
-#load test data
-test_input_folder = 'data/0_003/T0blocksMapV2_0_003/iteration_no0/'
-test_output_folder = 'data/0_003/T0blocksMapV2_0_003/iteration_no10/'
-test_dataset = HeatDiffusion(test_input_folder, test_output_folder, transform=transforms.ToTensor())
-#test_model(model, test_dataset[0][0], test_dataset[0][1])
-#test_model(model, test_dataset[1][0], test_dataset[1][1])
-
-
-"""
-Pyrorch common mistakes
-
-1. you should take a single sample then a single batch and try overfitting it
-before epoch :
-data, targets = next(iter(train_loader)) #with batch size = 1 then normal
-and comment the for enumerate(train_loader)
---> very low loss : ok the model is overfitting sanity check
-
-2. Forgot toggle train/eval
-model.eval() #when check accuracy and computing predictions in use case
-model.train() #when in training (with dropout and batchnorm... etc)
-
-3. Forgot .zero_grad()
-decrease accuracy a lot
-optimizer.zero_grad() then loss.backward() then optimizer.step()
-
-4. Softmax when using CrossEntropy (it decrease a little bit the accuracy)
-
-5. Bias term with BatchNorm
-self.bn1 = nn.BatchNorm2d(out_channel_previous)
-and then
-x = F.relu(self.bn1(self.conv1(x)))
-set bias=False in the conv layer (or the linear if batchnorm after a linear)
-the bias is unnecessary
-
-6. Using view as permute (not smth i would do)
-transposition : x.permute(1,0)
-
-7. Incorrect Data Augmentation
-
-8. Not Shuffling Data
-
-9. Not Normalizing Data
-we want data to have mean=0 and std=1
-ToTensor divide everything by 255
-after ToTensor(), transforms.Normalize(mean=(...,) , std=(...,))
-less important with batchnorm
-
-10. Not Clipping Gradients for RNNs, GRUs, LSTMs
-after loss.backward()
-do 
-torch.nn.utils.clip_grad_norm(model.parameters(), max_norm=1)
-
-also : 
-Getting confused with tensor dimensions (as a new guy you can spend plenty of time before harnessing the power of unsqueeze())
-Forgetting .cuda() or .to(device)
-Getting confused with convnet dimensions after conv layer is applied
-Not attempting to balance or disbalance the dataset on purpose, which can be useful
-
-For Dimensions after applying Conv layer
-you can use this formula [(W−K+2P)/S]+1  
-W = Input Width
-K = Kernel size
-P = Padding
-S = Stride
-
-Einsum :
-https://www.youtube.com/watch?v=pkVwUVEHmfI
-"""
+    print(f'MMSE is : {MMSE(model, 10)}')
