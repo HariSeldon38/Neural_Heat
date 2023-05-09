@@ -5,33 +5,42 @@ from customDataset import HeatDiffusion
 from torch.utils.data import DataLoader
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
-
-
+from model_classes import NeuralNet
 #device config
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if not torch.cuda.is_available():
+    print("Warning, cuda is not available")
 
+#Physics
+alpha = 0.003
+final_iteration = 10
 
 #hyperparameters
-epochs = 25 #nb of epochs to do when training
-n_train = 200
+epochs = 200 #nb of epochs to do when training
+#warning sometime the benefit of epochs cannot be seen on the loss fct
+#we see in tensorboard that loss is stagnating between epoch 30 and 50
+#but with 30 epoch MMSE is around 0.004 (6min) and with 50 epoch it is around 0.003 (8min)
+#with epoch 100 MMSE around 0.002 (12min)
+n_train = 2000
 batch_size = 20
-lr = 0.0005 #learning rate
-hidden = 2000 #nb of neurons in the hidden layer
-input_folder = 'data/0_003/ALLMAPS/iteration_no0'
-output_folder = 'data/0_003/ALLMAPS/iteration_no10'
+lr = 0.0001 #learning rate
+hidden_size = 2000 #nb of neurons in the hidden layer
+input_folder = f"data/{str(alpha).replace('.','_')}/2,5k_samples/iteration_no0"
+output_folder = f"data/{str(alpha).replace('.','_')}/2,5k_samples/iteration_no{final_iteration}"
 schedule = True
-sched_step = [13] #epoch steps when we want to decrease the lr by a factor 2
+sched_step = [13,24] #epoch steps when we want to decrease the lr by a factor 2
 
 
 epoch_step_to_print = 10 #the loss will be displayed every _ epochs
 
 
+tensorboard = False
 #access to tensorboard:
-#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs/feedfwd/
+#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs/feedfwd/6
 #web = http://localhost:6006/
-tensorboard = True
-tensorboard_path = 'runs/feedfwd/5bestALLMAPS'
-tensorboard_name = f'trainingsamples{n_train}_batchsize{batch_size}_lr{lr}_hiddensize{hidden}_shedule0.5_at_13'
+tensorboard_path = 'runs/feedfwd/6_nb_samples'
+tensorboard_name = f'trainingsamples{n_train}_batchsize{batch_size}_lr{lr}_hiddensize{hidden_size}_shedule0.5_at_13and26_50ep'
+save_path =  f"trained_models/{str(alpha).replace('.','_')}_{final_iteration}_{n_train}trainsamples_feedfwd"
 
 
 #load data, nothing to touch here
@@ -45,29 +54,13 @@ train_set, test_set = torch.utils.data.random_split(dataset, [n_train,n_test])
 train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(dataset=test_set, batch_size=batch_size,shuffle=True)
 x_dim, y_dim = len(dataset[0][0][0]), len(dataset[0][0])
-input_size = x_dim * y_dim #total nb of pixels of one image
 #first [0] select one sample, second [0] select only the input 'T0' then nb of rows and cols
+input_size = x_dim * y_dim #total nb of pixels of one image
 output_size = input_size #we want the nn to output images of the same size as input images
 
-def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
+model = NeuralNet(hidden_size).to(device)
 
-    # Fully connected neural network with one hidden layer
-    class NeuralNet(nn.Module):
-        def __init__(self, input_size, hidden_size, output_size):
-            super(NeuralNet, self).__init__()
-            self.input_size = input_size
-            self.l1 = nn.Linear(input_size, hidden_size)
-            self.l2 = nn.Linear(hidden_size, output_size)
-
-        def forward(self, x):
-            out = x.view(-1, input_size)
-            out = nn.ReLU()(self.l1(out))
-            out = self.l2(out)
-            # no activation at the end
-            out = out.view(-1,y_dim,x_dim) #need to unhardcode by int(np.sqrt(output_size))
-            return out
-
-    model = NeuralNet(input_size, hidden_size, output_size).to(device)
+def train(num_epochs = epochs, learning_rate = lr):
 
     #loss and optimizer, scheduler, writer
     criterion = nn.MSELoss()
@@ -103,23 +96,8 @@ def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
         if (epoch+1) % epoch_step_to_print == 0:
             print(f'epoch {epoch+1} / {num_epochs}, loss = {loss.item():.6f}')
 
-    #test
-    model.eval()
-    with torch.no_grad():
-        sum_test_loss = 0
-        for inputs, true_outputs in test_loader:
-            inputs = inputs.to(device)
-            true_outputs = true_outputs.to(device)
-            pred_outputs = model(inputs)
-
-            sum_test_loss += criterion(pred_outputs, true_outputs)
-
-        precision = sum_test_loss/n_test
-        print("///////////////////////")
-        print(f'precision = {precision}')
-        print(f"epoch = {num_epochs}")
-
     return model
+
 
 if __name__=='__main__':
     from test_models import visual_test_model, MMSE
@@ -135,3 +113,17 @@ if __name__=='__main__':
     visual_test_model(model, test_dataset[0][0], test_dataset[0][1])
 
     print(f'MMSE is : {MMSE(model, 10)}')
+
+    def save_model(save):
+        torch.save(model.state_dict(),save_path + '_' + str(save))
+
+    """LOAD MODEL
+    loaded_model = NeuralNet(hidden_size).to(device)
+    loaded_model.load_state_dict(torch.load(save_path + '_' + str(save)))
+    loaded_model.eval()
+    
+    #see parameters:
+    layers=[x.data for x in loaded_model.parameters()]
+    """
+
+

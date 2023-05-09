@@ -5,34 +5,41 @@ from customDataset import HeatDiffusion
 from torch.utils.data import DataLoader
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
-import torch.nn.functional as F
-
+from model_classes import ConvNet
 #device config
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if not torch.cuda.is_available():
+    print("Warning, cuda is not available")
 
+
+#Physics
+alpha = 0.003
+final_iteration = 10
 
 #hyperparameters
 epochs = 25
-n_train = 200
+n_train = 300
 batch_size = 20
-lr = 0.001 #learning rate
-hidden = 2000 #nb of neurons in the hidden layer
-channels = (12,15) #nb output channel in the con layers
-kernel_size = (5,5) #kernel size for the conv layers
-input_folder = 'data/0_003/T0blocksMap/iteration_no0'
-output_folder = 'data/0_003/T0blocksMap/iteration_no10'
+lr = 0.005 #learning rate
+channels = 1 #nb output channel in the con layer
+kernel_size = 5 #kernel size for the conv layer
+input_folder = f"data/{str(alpha).replace('.','_')}/2,5k_samples/iteration_no0"
+output_folder = f"data/{str(alpha).replace('.','_')}/2,5k_samples/iteration_no{final_iteration}"
 schedule = False
 sched_step = [15] #epoch steps when we want to decrease the lr by a factor 2
 
+
+
+tensorboard = False
 #access to tensorboard:
-#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs/CNN/
+#cmd : tensorboard --logdir="C:\Users\gaia3\AppData\Local\Programs\Python\PythonProjects\Neural_Heat/runs/CNN/1/
 #web = http://localhost:6006/
-tensorboard = True
-tensorboard_path = 'runs/CNN/1lr'
-tensorboard_name = f"training{n_train}_batch{batch_size}_lr{lr}_hid{hidden}_chan1_{channels[0]}_chan2_{channels[1]}_ker1_{kernel_size[0]}_ker2_{kernel_size[1]}_ep{epochs}_ALLMAPS"
+tensorboard_path = 'runs/CNN/1'
+tensorboard_name = f"trainingsamples{n_train}_batch{batch_size}_lr{lr}_chan_{channels}_ker_{kernel_size}_ep{epochs}"
+save_path =  f"models/{str(alpha).replace('.','_')}_{final_iteration}_{n_train}trainsamples_CNN"
 
 
-epoch_step_to_print = 10 #the loss will be displayed every _ epochs
+epoch_step_to_print = 5 #the loss will be displayed every _ epochs
 
 
 #load data, nothing to touch here
@@ -50,33 +57,9 @@ input_size = x_dim * y_dim #total nb of pixels of one image
 #first [0] select one sample, second [0] select only the input 'T0' then nb of rows and cols
 output_size = input_size #we want the nn to output images of the same size as input images
 
-def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
+model = ConvNet(channels, kernel_size).to(device)
 
-    # Convolutionnal neural network
-    class ConvNet(nn.Module):
-        def __init__(self, input_size, hidden_size, output_size):
-            super(ConvNet, self).__init__()
-            self.output_size_afterConv = int(((x_dim-kernel_size[0]+1)*0.5 - kernel_size[1]+1)*0.5) #size of images after convolution and maxpooling
-            self.conv1 = nn.Conv2d(1,channels[0],(kernel_size[0],kernel_size[0]))
-            self.pool = nn.MaxPool2d(2,2)
-            self.conv2 = nn.Conv2d(channels[0],channels[1],(kernel_size[1],kernel_size[1]))
-            self.fc1 = nn.Linear(channels[1]*self.output_size_afterConv**2, hidden_size) #unhardcode that
-            self.fc2 = nn.Linear(hidden_size, output_size)
-            self.act = F.relu
-
-        def forward(self, x):
-            out = x.view(-1,1,y_dim,x_dim) #we need the one because conv layer is expected a certain nb of channels
-            out = self.pool(self.act(self.conv1(out)))
-            out = self.pool(self.act(self.conv2(out)))
-            out = out.view(-1, channels[1]*self.output_size_afterConv**2) #unhardcode that
-            out = self.act(self.fc1(out))
-            out = self.fc2(out)
-            # no activation and no softmax at the end
-            out = out.view(-1,y_dim,x_dim)
-
-            return out
-
-    model = ConvNet(input_size, hidden_size, output_size).to(device)
+def train(num_epochs = epochs, learning_rate = lr,):
 
     #loss and optimizer, scheduler, writer
     criterion = nn.MSELoss()
@@ -86,7 +69,7 @@ def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
     if tensorboard:
         writer = SummaryWriter(tensorboard_path + '/' + tensorboard_name)
         step = 0
-
+    print("\n")
     #training loop
     model.train()
     for epoch in range(num_epochs):
@@ -112,23 +95,8 @@ def train(num_epochs = epochs, learning_rate = lr, hidden_size = hidden):
         if (epoch+1) % epoch_step_to_print == 0:
             print(f'epoch {epoch+1} / {num_epochs}, loss = {loss.item():.6f}')
 
-    #test
-    model.eval()
-    with torch.no_grad():
-        sum_test_loss = 0
-        for inputs, true_outputs in test_loader:
-            inputs = inputs.to(device)
-            true_outputs = true_outputs.to(device)
-            pred_outputs = model(inputs)
-
-            sum_test_loss += criterion(pred_outputs, true_outputs)
-
-        glob_err = sum_test_loss/n_test
-        print("///////////////////////")
-        print(f'global error = {glob_err}')
-        print(f"epoch = {num_epochs}")
-
     return model
+
 
 if __name__=='__main__':
     from test_models import visual_test_model, MMSE
@@ -144,3 +112,15 @@ if __name__=='__main__':
     visual_test_model(model, test_dataset[0][0], test_dataset[0][1])
 
     print(f'MMSE is : {MMSE(model, 10)}')
+
+    def save_model(save):
+        torch.save(model.state_dict(), save_path + '_' + str(save))
+
+    """LOAD MODEL
+    loaded_model = ConvNet(channels, kernel_size).to(device)
+    loaded_model.load_state_dict(torch.load(save_path + '_' + str(save)))
+    loaded_model.eval()
+    
+    #see parameters:
+    layers=[x.data for x in loaded_model.parameters()]
+    """

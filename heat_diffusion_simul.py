@@ -13,7 +13,7 @@ The data generated with these functions can be uploaded to a machine learning sc
 by using the module "customDataset.py"
 
 NB : for physics purist, the spatial and time parameters have all been rigorously defines
-with units specified in the function "iterate".
+with units specified in the function "diffuse".
 Nonetheless the initial matrices set temperatures between 0 and 1 and thus need to be scaled to the desired physical values.
 """
 
@@ -93,7 +93,7 @@ def T0testMap(nx,ny):
     the numpy array will consist of randomly generated blocks of random sizes,
     each blocks composed either of data from a matrix T0sinusMap or T0blocksMapV2
 
-    This function is used to make an ultimate test on trained models
+    This function is used to make an ultimate test on trained trained_models
     to see if they can perform well on sharp and smooth T0 altogether
     """
     T0_blocks = T0blocksMapV2(nx,ny)
@@ -119,9 +119,9 @@ def diffuse(T_matrix, iterations, dt, dx, coef_diff):
 
     :param T_matrix: temperature map at t initial (t_i)
     :param iterations: number of steps to evolve the temperature map
-    :param dt : duration of one iteration
-    :param dx : size of the spatial discretization (dy is the same)
-    :param coef_diff : diffusion coeficient
+    :param dt : duration of one iteration in second
+    :param dx : size of the spatial discretization in meter (dy is the same)
+    :param coef_diff : diffusivité thermique m2.s-1
 
     :return: the new temperature map at t = t_i + iterations*dt
     """
