@@ -15,7 +15,7 @@ HeatDiffusion_multi_outputs is to be use for data of any kind...
 NB :
 An element of a TrainLoader used with each kind of datasets has following format and types :
     HeatDiffusion: list( input_images:3Dtensor(batch_size,v_dim,h_dim), output_images:same )
-    HeatDiffusion_multi_alpha : list( list(input_images:3Dtensor, alphas:1Dtensor(batch_size),
+    HeatDiffusion_multi_alpha : list( list(input_images:3Dtensor, alphas:2Dtensor(batch_size,1),
                                       output_images:3Dtensor )
     HeatDiffusion_multi_outputs : list( input_images:3Dtensor,
                                         list( output_images:3Dtensor for len(output_directories) ) )
@@ -26,7 +26,8 @@ import os
 from torch.utils.data import Dataset
 from skimage import io
 from numpy import squeeze #it remove [ ] around single values in a matrix
-
+import torchvision.transforms as transforms
+import torch
 
 class HeatDiffusion(Dataset):
     """
@@ -45,7 +46,7 @@ class HeatDiffusion(Dataset):
         train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(dataset=test_set, batch_size=batch_size,shuffle=True)
     """
-    def __init__(self, input_dir, output_dir, transform=None):
+    def __init__(self, input_dir, output_dir, transform=transforms.ToTensor()):
         """
         Create a torch.utils.data.dataset object with images of the diffusion simulation.
 
@@ -97,7 +98,7 @@ class HeatDiffusion_multi_alpha(Dataset):
         train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(dataset=test_set, batch_size=batch_size,shuffle=True)
     """
-    def __init__(self, input_dir, output_dir, transform=None):
+    def __init__(self, input_dir, output_dir, alphas=None, samples_per_alpha=None, single_alpha=None, transform=transforms.ToTensor()):
         """
         Create a torch.utils.data.dataset object with images of the diffusion simulation.
         Difference with standard class 'HeatDiffusion':
@@ -108,9 +109,16 @@ class HeatDiffusion_multi_alpha(Dataset):
         :param output_dir: path of the directory that contains the final temperature maps (usually */iteration_noN)
         :param transform: transformation to use, torchvision.transforms.ToTensor() is neccessary most of the time
         """
+        if single_alpha is None and (alphas is None or samples_per_alpha is None):
+            """we create a case to use this class with single coef alpha in order to use MMSE with multi_alpha models"""
+            raise ValueError("You must specify alphas and number of samples per alpha")
+
         self.input_dir = input_dir
         self.output_dir = output_dir
+        self.alphas = alphas
+        self.samples_per_alphas = samples_per_alpha
         self.transform = transform
+        self.single_alpha = single_alpha
 
     def __len__(self):
         """returns the nb of samples in the dataset"""
@@ -124,16 +132,29 @@ class HeatDiffusion_multi_alpha(Dataset):
     def __getitem__(self, index):
         """
         :param index: # of the sample we want (ascendent order of alpha_coef and then # of the images)
-        :return: (input_image[index]: tensor(v_dim,h_dim), alpha used to compute output: float)
+        :return: (input_image[index]: tensor(v_dim,h_dim), alpha used to compute output: tensor(float))
                     ,output_image[index]: tensor(v_dim,h_dim)
         """
-        alpha = ((index//20)+1)*0.0005
+        if self.single_alpha: #we'll use getitem from HeatDiffusion and add the alpha in the return
+            input_image = squeeze(
+                io.imread(self.input_dir + f'/{str(index)}.png')[:, :, 0])  # we only want one of the RGB channel
+            output_image = squeeze(
+                io.imread(self.output_dir + f'/{str(index)}.png')[:, :, 0])  # as the image is grayscaled
+
+            if self.transform:
+                input_image = self.transform(input_image)[0]  # [0] cause ToTensor() adds a useless dimension
+                output_image = self.transform(output_image)[0]
+            alpha = torch.Tensor([self.single_alpha])
+            return (input_image, alpha), output_image
+
+        alpha = self.alphas[index//self.samples_per_alphas]
         name = f"{str(alpha).replace('.','')}_{index%20}.png"
         input_image = squeeze(io.imread(self.input_dir +'/'+name)[:,:,0]) #we only want one of the RGB channel
         output_image = squeeze(io.imread(self.output_dir+'/'+name)[:,:,0]) #as the image is grayscaled
 
         if self.transform:
             input_image = self.transform(input_image)[0] #[0] cause ToTensor() adds a useless dimension
+            alpha = torch.Tensor([alpha])
             output_image = self.transform(output_image)[0]
 
         return (input_image, alpha), output_image
@@ -155,7 +176,7 @@ class HeatDiffusion_multi_outputs(Dataset):
         train_loader = DataLoader(dataset=train_set, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(dataset=test_set, batch_size=batch_size,shuffle=True)
     """
-    def __init__(self, input_dir, output_dirs, transform=None):
+    def __init__(self, input_dir, output_dirs, transform=transforms.ToTensor()):
         """
         Create a torch.utils.data.dataset object with images of the diffusion simulation.
 

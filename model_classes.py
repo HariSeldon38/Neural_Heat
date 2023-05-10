@@ -34,3 +34,20 @@ class ConvNet(nn.Module):
         out = self.act(self.conv(out))
         out = out.view(-1, self.ydim, self.xdim)
         return out
+
+# Convolutionnal neural network
+# Multitask with respect to alpha
+class ConvNet_alpha(nn.Module):
+    def __init__(self, nb_channels, kernel_size, output_size=10000, xdim=100):
+        super(ConvNet_alpha, self).__init__()
+        self.xdim = xdim
+        self.ydim = int(output_size/xdim)
+        self.conv = nn.Conv2d(1,nb_channels,(kernel_size,kernel_size), padding=int((kernel_size-1)/2), padding_mode='replicate')
+        self.act = nn.ReLU()
+
+    def forward(self, x):
+        out = x[0].view(-1,1,self.ydim,self.xdim) #now x is (image, alpha)
+        alpha = x[1] #for now alpha is not used
+        out = self.act(self.conv(out))
+        out = out.view(-1, self.ydim, self.xdim)
+        return out
